@@ -4,3 +4,5 @@ pm_data/
 *.pkl
 __pycache__/
 .DS_Store
+figures/porous_media_example.png
+figures/porous_media_example.png
