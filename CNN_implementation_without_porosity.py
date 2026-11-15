@@ -234,4 +234,4 @@ if __name__ == "__main__":
     plot_all_results(y_train, y_train_pred, y_test, y_test_pred, val_history)
 
     torch.save(model.state_dict(), "cnn_model_bitstring_only.pth")
-    print("\nSaved model → cnn_model_bitstring_only.pth")
+    print("\nSaved model to cnn_model_bitstring_only.pth")

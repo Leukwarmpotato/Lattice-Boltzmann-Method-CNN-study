@@ -215,9 +215,7 @@ if __name__ == '__main__':
     for k, pm_file in enumerate(todo):
         pm_path = os.path.join(pm_dir, pm_file)
         
-        print(f"\n{'='*60}")
         print(f"Processing: {pm_file} ({k+1}/{len(todo)})")
-        print(f"{'='*60}")
         
         circles, domain_size, porosity, seed = load_pm_file(pm_path)
         
@@ -251,7 +249,5 @@ if __name__ == '__main__':
         remaining = elapsed / (k + 1) * (len(todo) - k - 1)
         print(f"Sample time: {time.time() - sample_start:.1f}s, estimated time remaining: {remaining/3600:.1f} h")
     
-    print(f"\n{'='*60}")
     print(f"Processed {len(results)} samples")
     print(f"Results saved to {output_file}")
-    print(f"{'='*60}")

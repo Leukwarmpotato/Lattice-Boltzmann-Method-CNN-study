@@ -62,7 +62,6 @@ def prepare_nn_dataset(pm_dir="pm_data", target_resolution=64, output_file="nn_d
     metadata = []
     
     print(f"Preparing dataset with {n_samples} samples at {target_resolution}x{target_resolution} resolution")
-    print("="*60)
     
     for i, result in enumerate(perm_results):
         pm_file = result["pm_file"]
@@ -93,10 +92,8 @@ def prepare_nn_dataset(pm_dir="pm_data", target_resolution=64, output_file="nn_d
              y=y_permeability,
              metadata=json.dumps(metadata))
     
-    print(f"\n{'='*60}")
     print(f"Dataset saved to {output_file}")
     print(f"Shape: X={X_images.shape}, y={y_permeability.shape}")
-    print(f"{'='*60}")
     
     return X_images, y_permeability, metadata
 
@@ -133,47 +130,13 @@ def compare_resolutions(circles, domain_size, resolutions=[32, 64, 128, 256]):
     plt.savefig("figures/resolution_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-def example_nn_training():
-    print("\nExample: Loading dataset for neural network training")
-    print("="*60)
-    
-    data = np.load("nn_dataset.npz", allow_pickle=True)
-    X = data['X']
-    y = data['y']
-    metadata = json.loads(str(data['metadata']))
-    
-    print(f"Loaded dataset:")
-    print(f"  Input images (X): {X.shape}")
-    print(f"  Target permeability (y): {y.shape}")
-    print(f"  Number of samples: {len(X)}")
-    
-    X_cnn = X[..., np.newaxis]
-    
-    print(f"\nReshaped for CNN: {X_cnn.shape}")
-    
-    split = int(0.8 * len(X))
-    X_train, X_val = X_cnn[:split], X_cnn[split:]
-    y_train, y_val = y[:split], y[split:]
-    
-    print(f"\nTrain/Val split:")
-    print(f"  Train: X={X_train.shape}, y={y_train.shape}")
-    print(f"  Val: X={X_val.shape}, y={y_val.shape}")
-    
-    print("\n" + "="*60)
-    print("Dataset ready for training!")
-    print("Use X_train, y_train for training your neural network")
-    print("="*60)
-    
-    return X_train, X_val, y_train, y_val
-
 if __name__ == '__main__':
     PM_DIR = "pm_data"
     NN_RESOLUTION = 50
     
     perm_file = f"{PM_DIR}/permeability_results.json"
     if not os.path.exists(perm_file):
-        print(f"ERROR: {perm_file} not found!")
-        print("Please run the LBM permeability calculator first (script 2)")
+        print(f"{perm_file} not found. Run LBM_PM_calc.py first.")
         exit(1)
     
     X, y, metadata = prepare_nn_dataset(
@@ -183,5 +146,3 @@ if __name__ == '__main__':
     )
     
     visualize_dataset_samples(X, y, metadata, n_samples=5)
-    
-    example_nn_training()
