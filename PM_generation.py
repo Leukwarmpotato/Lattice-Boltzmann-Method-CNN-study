@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import json
 
@@ -84,7 +85,9 @@ def visualize_pm_descriptor(circles, domain_size, resolution=200):
     plt.xlabel('x')
     plt.ylabel('y')
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/porous_media_example.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 def generate_dataset(n_samples=1000, domain_size=1.0, porosity_range=(0.3, 0.7),
                     radius=0.05, min_spacing=0.01, output_dir="pm_data"):
@@ -125,8 +128,8 @@ def generate_dataset(n_samples=1000, domain_size=1.0, porosity_range=(0.3, 0.7),
 
 if __name__ == '__main__':
     DOMAIN_SIZE = 1.0
-    POROSITY_MIN = 0.3
-    POROSITY_MAX = 0.7
+    POROSITY_MIN = 0.6
+    POROSITY_MAX = 0.85
     CIRCLE_RADIUS = 0.05
     MIN_SPACING = 0.01
     N_SAMPLES = 1000

@@ -1,9 +1,13 @@
 import jax
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
 import json
 import os
+import sys
+import time
+from functools import partial
 
 def load_pm_file(filename):
     with open(filename, 'r') as f:
@@ -58,16 +62,12 @@ def equilibrium_distribution(rho, ux, uy, c, w, cs2):
 def lbm_step(state, c, w, cs2, force, M, M_inv, S_base, nu, solid_mask):
     f_prev, _, _, _ = state
 
+    bounce_back_indices = [0, 3, 4, 1, 2, 7, 8, 5, 6]
     f_streamed = f_prev
     for i in range(9):
-        f_streamed = f_streamed.at[:, :, i].set(jnp.roll(jnp.roll(f_prev[:, :, i], c[i, 0], axis=0), c[i, 1], axis=1))
-    
-    bounce_back_indices = jnp.array([0, 3, 4, 1, 2, 7, 8, 5, 6])
-    f_streamed = jnp.where(
-        solid_mask[:, :, jnp.newaxis],
-        f_streamed[:, :, bounce_back_indices],
-        f_streamed
-    )
+        streamed = jnp.roll(jnp.roll(f_prev[:, :, i], c[i, 0], axis=0), c[i, 1], axis=1)
+        from_solid = jnp.roll(jnp.roll(solid_mask, c[i, 0], axis=0), c[i, 1], axis=1)
+        f_streamed = f_streamed.at[:, :, i].set(jnp.where(from_solid, f_prev[:, :, bounce_back_indices[i]], streamed))
 
     rho = jnp.sum(f_streamed, axis=2)
     vel = jnp.einsum('xyq,qi->xyi', f_streamed, c)
@@ -75,6 +75,8 @@ def lbm_step(state, c, w, cs2, force, M, M_inv, S_base, nu, solid_mask):
     vel += 0.5 * force * rho_r
     ux, uy = jnp.dsplit(jnp.where(rho_r > 0, vel / rho_r, 0), 2)
     ux, uy = ux.squeeze(axis=2), uy.squeeze(axis=2)
+    ux = jnp.where(solid_mask, 0.0, ux)
+    uy = jnp.where(solid_mask, 0.0, uy)
 
     tau = (nu / cs2) + 0.5
     
@@ -94,11 +96,11 @@ def lbm_step(state, c, w, cs2, force, M, M_inv, S_base, nu, solid_mask):
 
     s_nu = 1.0 / tau
     S_local = jnp.broadcast_to(S_base, (rho.shape[0], rho.shape[1], 9))
+    s_q = 8.0 * (2.0 - s_nu) / (8.0 - s_nu)
+    S_local = S_local.at[:, :, 4].set(s_q)
+    S_local = S_local.at[:, :, 6].set(s_q)
     S_local = S_local.at[:, :, 7].set(s_nu)
     S_local = S_local.at[:, :, 8].set(s_nu)
-
-    m_collided = m - S_local * (m - m_eq)
-    f_collided = jnp.einsum('ij,xyj->xyi', M_inv, m_collided)
 
     u_vel = jnp.stack((ux, uy), axis=-1)[:, :, jnp.newaxis, :]
     c_dot_u = jnp.sum(c * u_vel, axis=3)
@@ -107,13 +109,19 @@ def lbm_step(state, c, w, cs2, force, M, M_inv, S_base, nu, solid_mask):
     w_r = w[jnp.newaxis, jnp.newaxis, :]
     term1 = (c_r - u_vel) / cs2
     term2 = (c_dot_u[..., jnp.newaxis] * c_r) / (cs2**2)
-    force_term = (1 - 1 / (2 * tau)) * w_r * jnp.sum((term1 + term2) * force_r, axis=3)
+    force_term = w_r * jnp.sum((term1 + term2) * force_r, axis=3)
+    m_force = jnp.einsum('ij,xyj->xyi', M, force_term)
 
-    f_new = f_collided + force_term
+    m_collided = m - S_local * (m - m_eq) + (1 - S_local / 2) * m_force
+    f_new = jnp.einsum('ij,xyj->xyi', M_inv, m_collided)
 
     return (f_new, rho, ux, uy)
 
-def calculate_permeability(porous_mask, nu, force_magnitude, num_steps=10000):
+@partial(jax.jit, static_argnums=(2,))
+def advance(state, solid_mask, n_steps, c, w, cs2, force, M, M_inv, S_base, nu):
+    return jax.lax.fori_loop(0, n_steps, lambda i, s: lbm_step(s, c, w, cs2, force, M, M_inv, S_base, nu, solid_mask), state)
+
+def calculate_permeability(porous_mask, nu, force_magnitude, max_steps=20000, check_every=500, min_steps=2000, tol=1e-4):
     ny, nx = porous_mask.shape
     print(f"\nCalculating permeability on {nx}x{ny} grid...")
     
@@ -135,7 +143,7 @@ def calculate_permeability(porous_mask, nu, force_magnitude, num_steps=10000):
         [0, 0, -2, 0, 2, 1, 1, -1, -1],
         [0, 1, -1, 1, -1, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 1, -1, 1, -1]
-    ])
+    ], dtype=float)
     M_inv = jnp.linalg.inv(M)
     S_base = jnp.array([1.0, 1.4, 1.4, 1.0, 1.2, 1.0, 1.2, 1.0, 1.0])
     
@@ -145,89 +153,105 @@ def calculate_permeability(porous_mask, nu, force_magnitude, num_steps=10000):
     f = equilibrium_distribution(rho, ux, uy, c, w, cs2)
     
     state = (f, rho, ux, uy)
-    constants = (c, w, cs2, force, M, M_inv, S_base, nu, solid_mask)
+    constants = (c, w, cs2, force, M, M_inv, S_base, nu)
     
-    jitted_step = jax.jit(lambda s: lbm_step(s, *constants))
+    fluid_mask = np.array(porous_mask)
+    n_nodes = fluid_mask.size
     
-    print("Compiling and running simulation...")
-    state = jitted_step(state)
-    state[0].block_until_ready()
-    
-    for step in range(num_steps):
-        state = jitted_step(state)
-        if step % 1000 == 0:
-            print(f"  Step {step}/{num_steps}")
-    
-    state[0].block_until_ready()
+    steps = 0
+    prev_velocity = None
+    converged = False
+    while steps < max_steps:
+        state = advance(state, solid_mask, check_every, *constants)
+        steps += check_every
+        ux_np = np.array(state[2])
+        superficial_velocity = ux_np[fluid_mask].sum() / n_nodes
+        if prev_velocity is not None and steps >= min_steps and abs(superficial_velocity - prev_velocity) <= tol * abs(superficial_velocity):
+            converged = True
+            break
+        prev_velocity = superficial_velocity
     
     _, rho_final, ux_final, uy_final = state
     
-    fluid_mask = np.array(porous_mask)
-    ux_np = np.array(ux_final)
-    
-    avg_velocity = np.mean(ux_np[fluid_mask])
-    
     mu = nu
-    permeability = (mu * avg_velocity) / force_magnitude
+    permeability = (mu * superficial_velocity) / force_magnitude
     
     print(f"\nResults:")
-    print(f"  Average velocity: {avg_velocity:.6e}")
+    print(f"  Steps: {steps} ({'converged' if converged else 'reached step limit'})")
+    print(f"  Superficial velocity: {superficial_velocity:.6e}")
     print(f"  Permeability: {permeability:.6e}")
     
-    return permeability, avg_velocity, state
+    return permeability, superficial_velocity, steps, converged, state
+
+def save_results(results, output_file):
+    tmp_file = output_file + ".tmp"
+    with open(tmp_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    os.replace(tmp_file, output_file)
 
 if __name__ == '__main__':
     LBM_GRID_SIZE = 200
     
-    NU = 0.01
+    NU = 1/6
     FORCE_MAGNITUDE = 1e-6
-    NUM_STEPS = 10000
+    MAX_STEPS = 20000
     
     pm_dir = "pm_data"
     output_file = f"{pm_dir}/permeability_results.json"
     
     results = []
+    if os.path.exists(output_file):
+        with open(output_file, 'r') as f:
+            results = json.load(f)
+    done = {r["pm_file"] for r in results}
     
     pm_files = sorted([f for f in os.listdir(pm_dir) if f.startswith("PM_sample_") and f.endswith(".json")])
+    if len(sys.argv) > 1:
+        pm_files = pm_files[:int(sys.argv[1])]
+    todo = [f for f in pm_files if f not in done]
+    print(f"{len(done)} samples already done, {len(todo)} to run")
     
-    for pm_file in pm_files:
+    run_start = time.time()
+    for k, pm_file in enumerate(todo):
         pm_path = os.path.join(pm_dir, pm_file)
         
         print(f"\n{'='*60}")
-        print(f"Processing: {pm_file}")
+        print(f"Processing: {pm_file} ({k+1}/{len(todo)})")
         print(f"{'='*60}")
         
         circles, domain_size, porosity, seed = load_pm_file(pm_path)
         
         porous_mask = rasterize_pm_to_grid(circles, domain_size, LBM_GRID_SIZE, LBM_GRID_SIZE)
+        grid_porosity = float(np.mean(porous_mask))
         
         print(f"Rasterized to {LBM_GRID_SIZE}x{LBM_GRID_SIZE} grid")
-        print(f"Grid porosity: {np.mean(porous_mask):.3f}")
+        print(f"Grid porosity: {grid_porosity:.3f}")
         
-        permeability, avg_velocity, final_state = calculate_permeability(
-            porous_mask, NU, FORCE_MAGNITUDE, NUM_STEPS
+        sample_start = time.time()
+        permeability, superficial_velocity, steps, converged, final_state = calculate_permeability(
+            porous_mask, NU, FORCE_MAGNITUDE, MAX_STEPS
         )
         
-        result = {
+        results.append({
             "pm_file": pm_file,
             "seed": seed,
             "porosity": float(porosity),
+            "grid_porosity": grid_porosity,
             "grid_size": LBM_GRID_SIZE,
             "permeability": float(permeability),
-            "avg_velocity": float(avg_velocity),
+            "superficial_velocity": float(superficial_velocity),
+            "steps": steps,
+            "converged": converged,
             "nu": NU,
             "force": FORCE_MAGNITUDE
-        }
-        results.append(result)
-    
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
+        })
+        save_results(results, output_file)
+        
+        elapsed = time.time() - run_start
+        remaining = elapsed / (k + 1) * (len(todo) - k - 1)
+        print(f"Sample time: {time.time() - sample_start:.1f}s, estimated time remaining: {remaining/3600:.1f} h")
     
     print(f"\n{'='*60}")
     print(f"Processed {len(results)} samples")
     print(f"Results saved to {output_file}")
     print(f"{'='*60}")
-    
-    print("\nPermeability Summary:")
-    for r in results:
-        print(f"  {r['pm_file']}: K = {r['permeability']:.6e}, φ = {r['porosity']:.3f}")

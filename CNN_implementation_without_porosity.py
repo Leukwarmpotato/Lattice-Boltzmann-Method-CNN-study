@@ -4,6 +4,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error
 import json
 import time
+import copy
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -51,7 +53,7 @@ def load_dataset(filename="nn_dataset.npz"):
 
     return X, y, metadata
 
-def prepare_data(X, y, test_size=0.2, random_state=42):
+def prepare_data(X, y, test_size=0.15, val_size=0.15, random_state=42):
 
     n_samples, h, w = X.shape
     bitstring_len = h * w
@@ -62,23 +64,28 @@ def prepare_data(X, y, test_size=0.2, random_state=42):
     X_train, X_test, y_train, y_test = train_test_split(
         X_bitstring, y, test_size=test_size, random_state=random_state
     )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train, y_train, test_size=val_size / (1 - test_size), random_state=random_state
+    )
 
     print("\nPrepared bitstrings:")
     print(f"Flattened shape: {X_bitstring.shape}")
     print(f"Bitstring length: {bitstring_len}")
-    return X_train, X_test, y_train, y_test, bitstring_len
+    print(f"Train/Val/Test: {len(X_train)}/{len(X_val)}/{len(X_test)}")
+    return X_train, X_val, X_test, y_train, y_val, y_test, bitstring_len
 
 
-def train_cnn(X_train, y_train, X_test, y_test, bitstring_len,
+def train_cnn(X_train, y_train, X_val, y_val, X_test, bitstring_len,
               epochs=100, batch_size=32, patience=20):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\nUsing device: {device}")
 
     X_train_t = torch.FloatTensor(X_train).reshape(-1, 1, bitstring_len)
+    X_val_t   = torch.FloatTensor(X_val).reshape(-1, 1, bitstring_len)
     X_test_t  = torch.FloatTensor(X_test).reshape(-1, 1, bitstring_len)
     y_train_t = torch.FloatTensor(y_train).reshape(-1, 1)
-    y_test_t  = torch.FloatTensor(y_test).reshape(-1, 1)
+    y_val_t   = torch.FloatTensor(y_val).reshape(-1, 1)
 
     train_loader = DataLoader(
         TensorDataset(X_train_t, y_train_t),
@@ -113,17 +120,17 @@ def train_cnn(X_train, y_train, X_test, y_test, bitstring_len,
 
         model.eval()
         with torch.no_grad():
-            val_pred = model(X_test_t.to(device))
-            val_loss = criterion(val_pred, y_test_t.to(device)).item()
+            val_pred = model(X_val_t.to(device))
+            val_loss = criterion(val_pred, y_val_t.to(device)).item()
 
         val_history.append(val_loss)  
 
         if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch+1}/{epochs}  Train={train_loss:.4f}  Test={val_loss:.4f}")
+            print(f"Epoch {epoch+1}/{epochs}  Train={train_loss:.4f}  Val={val_loss:.4f}")
 
         if val_loss < best_loss:
             best_loss = val_loss
-            best_state = model.state_dict()
+            best_state = copy.deepcopy(model.state_dict())
             patience_counter = 0
         else:
             patience_counter += 1
@@ -132,6 +139,7 @@ def train_cnn(X_train, y_train, X_test, y_test, bitstring_len,
                 break
 
     model.load_state_dict(best_state)
+    model.eval()
 
     with torch.no_grad():
         y_train_pred = model(X_train_t.to(device)).cpu().numpy().flatten()
@@ -179,7 +187,9 @@ def plot_all_results(y_train, y_train_pred, y_test, y_test_pred, val_history):
     axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/cnn_results.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
     
     plt.figure(figsize=(6,4))
@@ -188,27 +198,33 @@ def plot_all_results(y_train, y_train_pred, y_test, y_test_pred, val_history):
     plt.xlabel("Error (Actual - Predicted)")
     plt.ylabel("Count")
     plt.grid(True, alpha=0.3)
-    plt.show()
+    plt.savefig("figures/cnn_residual_histogram.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 def evaluate(y_train, y_train_pred, y_test, y_test_pred):
     print("\nEvaluation:")
     r2t = r2_score(y_train, y_train_pred)
     r2  = r2_score(y_test, y_test_pred)
     mae = mean_absolute_error(y_test, y_test_pred)
+    mape = np.mean(np.abs((y_test - y_test_pred) / y_test)) * 100
     print(f"Train R²: {r2t:.4f}")
     print(f"Test  R²: {r2:.4f}")
     print(f"MAE:      {mae:.4f}")
-    return {"train_r2": r2t, "test_r2": r2, "mae": mae}
+    print(f"MAPE:     {mape:.2f}%")
+    return {"train_r2": r2t, "test_r2": r2, "mae": mae, "mape": mape}
 
 if __name__ == "__main__":
 
+    torch.manual_seed(42)
+
     X, y, metadata = load_dataset()
 
-    X_train, X_test, y_train, y_test, bit_len = prepare_data(X, y)
+    X_train, X_val, X_test, y_train, y_val, y_test, bit_len = prepare_data(X, y)
 
     model, y_train_pred, y_test_pred, val_history = train_cnn(
         X_train, y_train,
-        X_test, y_test,
+        X_val, y_val,
+        X_test,
         bit_len,
         epochs=500
     )

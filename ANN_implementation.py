@@ -7,6 +7,7 @@ from sklearn.metrics import r2_score, mean_absolute_error
 import json
 import time
 import pickle
+import os
 
 def load_dataset(filename="nn_dataset.npz"):
     data = np.load(filename, allow_pickle=True)
@@ -15,7 +16,7 @@ def load_dataset(filename="nn_dataset.npz"):
     metadata = json.loads(str(data['metadata']))
     return X, y, metadata
 
-def prepare_data(X, y, test_size=0.2, random_state=42):
+def prepare_data(X, y, test_size=0.15, random_state=42):
     n_samples = X.shape[0]
     X_flat = X.reshape(n_samples, -1).astype(np.float32)
     
@@ -98,7 +99,9 @@ def plot_results(y_train, y_train_pred, y_test, y_test_pred, test_r2):
     axes[2].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/ann_results.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 if __name__ == '__main__':
     X, y, metadata = load_dataset("nn_dataset.npz")

@@ -4,6 +4,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error
 import json
 import time
+import copy
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -72,7 +74,7 @@ def load_dataset(filename="nn_dataset.npz"):
 
 # ================== PREPARE DATA ==================
 
-def prepare_data(X, y, test_size=0.2, random_state=42):
+def prepare_data(X, y, test_size=0.15, val_size=0.15, random_state=42):
     """Prepare bitstring data for CNN (reshape to 2D)"""
     
     grid_size = X.shape[1]  # Get grid size (50 or 100)
@@ -96,16 +98,20 @@ def prepare_data(X, y, test_size=0.2, random_state=42):
     X_train, X_test, y_train, y_test = train_test_split(
         X_bitstring, y, test_size=test_size, random_state=random_state
     )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train, y_train, test_size=val_size / (1 - test_size), random_state=random_state
+    )
     
-    print(f"\nTrain/Test split:")
+    print(f"\nTrain/Val/Test split:")
     print(f"  Training: {len(X_train)} samples")
+    print(f"  Validation: {len(X_val)} samples")
     print(f"  Testing: {len(X_test)} samples")
     
-    return X_train, X_test, y_train, y_test, grid_size
+    return X_train, X_val, X_test, y_train, y_val, y_test, grid_size
 
 # ================== TRAIN CNN ==================
 
-def train_cnn(X_train, y_train, X_test, y_test, grid_size, epochs=100, batch_size=32):
+def train_cnn(X_train, y_train, X_val, y_val, X_test, grid_size, epochs=100, batch_size=32):
     """Train CNN model using bitstrings (reshape internally)"""
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -114,11 +120,13 @@ def train_cnn(X_train, y_train, X_test, y_test, grid_size, epochs=100, batch_siz
     # Convert to PyTorch tensors
     X_train_t = torch.FloatTensor(X_train)
     y_train_t = torch.FloatTensor(y_train).reshape(-1, 1)
+    X_val_t = torch.FloatTensor(X_val)
+    y_val_t = torch.FloatTensor(y_val).reshape(-1, 1)
     X_test_t = torch.FloatTensor(X_test)
-    y_test_t = torch.FloatTensor(y_test).reshape(-1, 1)
     
     # Reshape bitstrings to 2D images: (n, bits) -> (n, 1, h, w)
     X_train_t = X_train_t.reshape(-1, 1, grid_size, grid_size)
+    X_val_t = X_val_t.reshape(-1, 1, grid_size, grid_size)
     X_test_t = X_test_t.reshape(-1, 1, grid_size, grid_size)
     
     print(f"\nReshaped bitstrings to 2D for CNN:")
@@ -172,10 +180,10 @@ def train_cnn(X_train, y_train, X_test, y_test, grid_size, epochs=100, batch_siz
         # Validation
         model.eval()
         with torch.no_grad():
-            X_test_d = X_test_t.to(device)
-            y_test_d = y_test_t.to(device)
-            val_outputs = model(X_test_d)
-            val_loss = criterion(val_outputs, y_test_d).item()
+            X_val_d = X_val_t.to(device)
+            y_val_d = y_val_t.to(device)
+            val_outputs = model(X_val_d)
+            val_loss = criterion(val_outputs, y_val_d).item()
         
         scheduler.step(val_loss)
         
@@ -188,7 +196,7 @@ def train_cnn(X_train, y_train, X_test, y_test, grid_size, epochs=100, batch_siz
             best_loss = val_loss
             patience_counter = 0
             # Save best model
-            best_model_state = model.state_dict()
+            best_model_state = copy.deepcopy(model.state_dict())
         else:
             patience_counter += 1
             if patience_counter >= 20:
@@ -262,7 +270,9 @@ def plot_results(y_train, y_train_pred, y_test, y_test_pred):
     axes[1].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/cnn_2d_results.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 # ================== MAIN ==================
 
@@ -272,15 +282,17 @@ if __name__ == '__main__':
     print("CNN FOR PERMEABILITY PREDICTION")
     print("="*60)
     
+    torch.manual_seed(42)
+    
     # Load
     X, y, metadata = load_dataset("nn_dataset.npz")
     
     # Prepare
-    X_train, X_test, y_train, y_test = prepare_data(X, y)
+    X_train, X_val, X_test, y_train, y_val, y_test, grid_size = prepare_data(X, y)
     
     # Train CNN
     model, y_train_pred, y_test_pred = train_cnn(
-        X_train, y_train, X_test, y_test, 
+        X_train, y_train, X_val, y_val, X_test, grid_size,
         epochs=100, 
         batch_size=32
     )

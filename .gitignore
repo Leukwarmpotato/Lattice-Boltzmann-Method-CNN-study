@@ -1,0 +1,6 @@
+pm_data/
+*.npz
+*.pth
+*.pkl
+__pycache__/
+.DS_Store

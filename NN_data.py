@@ -113,7 +113,9 @@ def visualize_dataset_samples(X, y, metadata, n_samples=5):
         axes[i].axis('off')
     
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/dataset_samples.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 def compare_resolutions(circles, domain_size, resolutions=[32, 64, 128, 256]):
     n_res = len(resolutions)
@@ -127,7 +129,9 @@ def compare_resolutions(circles, domain_size, resolutions=[32, 64, 128, 256]):
     
     plt.suptitle('Porous Media at Different Resolutions')
     plt.tight_layout()
-    plt.show()
+    os.makedirs("figures", exist_ok=True)
+    plt.savefig("figures/resolution_comparison.png", dpi=150, bbox_inches="tight")
+    plt.close()
 
 def example_nn_training():
     print("\nExample: Loading dataset for neural network training")
