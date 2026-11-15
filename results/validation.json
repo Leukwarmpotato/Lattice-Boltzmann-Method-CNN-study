@@ -1,0 +1,66 @@
+[
+  {
+    "case": "Channel, width 20, nu 0.010",
+    "lbm": 22.24998239943923,
+    "analytical": 22.22222222222222,
+    "error_percent": 0.1249207974765465,
+    "steps": 57500,
+    "converged": true
+  },
+  {
+    "case": "Channel, width 20, nu 0.050",
+    "lbm": 22.249997586069316,
+    "analytical": 22.22222222222222,
+    "error_percent": 0.12498913731193717,
+    "steps": 13000,
+    "converged": true
+  },
+  {
+    "case": "Channel, width 20, nu 0.167",
+    "lbm": 22.249999976710782,
+    "analytical": 22.22222222222222,
+    "error_percent": 0.12499989519851873,
+    "steps": 5000,
+    "converged": true
+  },
+  {
+    "case": "Channel, width 8, nu 0.010",
+    "lbm": 3.5833331271212234,
+    "analytical": 3.5555555555555554,
+    "error_percent": 0.7812442002844255,
+    "steps": 11000,
+    "converged": true
+  },
+  {
+    "case": "Channel, width 8, nu 0.050",
+    "lbm": 3.58333333336523,
+    "analytical": 3.5555555555555554,
+    "error_percent": 0.7812500008971046,
+    "steps": 5000,
+    "converged": true
+  },
+  {
+    "case": "Channel, width 8, nu 0.167",
+    "lbm": 3.583333333537937,
+    "analytical": 3.5555555555555554,
+    "error_percent": 0.7812500057544858,
+    "steps": 5000,
+    "converged": true
+  },
+  {
+    "case": "Cylinder array, radius 10, solid fraction 0.032",
+    "lbm": 804.7067979703555,
+    "analytical": 811.6182441308395,
+    "error_percent": -0.8515636766994295,
+    "steps": 53000,
+    "converged": true
+  },
+  {
+    "case": "Cylinder array, radius 20, solid fraction 0.126",
+    "lbm": 325.90626590707797,
+    "analytical": 328.1198223213848,
+    "error_percent": -0.674618314323816,
+    "steps": 30500,
+    "converged": true
+  }
+]
