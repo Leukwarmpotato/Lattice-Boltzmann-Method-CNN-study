@@ -194,7 +194,7 @@ if __name__ == '__main__':
     
     NU = 1/6
     FORCE_MAGNITUDE = 1e-6
-    MAX_STEPS = 20000
+    MAX_STEPS = 40000
     
     pm_dir = "pm_data"
     output_file = f"{pm_dir}/permeability_results.json"
